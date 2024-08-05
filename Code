@@ -1,1 +1,106 @@
+import logging
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+import time
+import argparse
+import csv
+import os
+import re
+
+logging.getLogger("selenium").setLevel(logging.WARNING)
+
+parser = argparse.ArgumentParser(description="Scrape Amazon for specified product data.")
+parser.add_argument("-e", "--entry", required=True, help="The product type to search for (e.g., 'laptop').")
+parser.add_argument("-o", "--output", required=True, help="The path to the output CSV file.")
+args = parser.parse_args()
+
+csv_file_path = args.output
+output_dir = os.path.dirname(csv_file_path)
+
+if output_dir and not os.path.exists(output_dir):
+    print(f"Error: The directory {output_dir} does not exist.")
+    exit(1)
+
+if os.path.exists(csv_file_path):
+    try:
+        os.remove(csv_file_path)  
+    except PermissionError:
+        print(f"Error: Permission denied when trying to delete the file {csv_file_path}.")
+        exit(1)
+
+driver_path = r"C:\Users\DELL\Downloads\chromedriver-win64\chromedriver-win64\chromedriver.exe"
+
+
+service = Service(driver_path)
+
+options = Options()
+options.add_argument("--disable-gpu")
+options.add_argument("--no-sandbox")
+options.add_argument("--disable-dev-shm-usage")
+options.add_argument("--disable-blink-features=AutomationControlled")
+options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+options.add_argument("--remote-debugging-port=0")  
+
+
+driver = webdriver.Chrome(service=service, options=options)
+
+
+search_query = args.entry
+url = f"https://www.amazon.com/s?k={search_query}&ref=nb_sb_noss"
+
+driver.get(url)
+
+time.sleep(6)  
+
+def scrape_items():
+    listing_elements = driver.find_elements(By.CSS_SELECTOR, 'div[data-component-type="s-search-result"]')
+    for listing_element in listing_elements:
+        try:
+            title = listing_element.find_element(By.CSS_SELECTOR, 'span.a-size-medium.a-color-base.a-text-normal').text
+        except:
+            title = "N/A"
+
+        try:
+            rating = listing_element.find_element(By.CSS_SELECTOR, 'span.a-icon-alt').get_attribute("innerHTML")
+            rating = re.search(r'\d+(\.\d+)?', rating).group()
+            rating = float(rating)
+        except:
+            rating = 0.0
+
+        items.append({
+            "Title": title,
+            "Rating": rating
+        })
+
+items = []
+
+max_pages = 5    #Scrapping 5 pages because 100 items required
+current_page = 1
+
+while current_page <= max_pages:
+    scrape_items()
+    try:
+        next_button = driver.find_element(By.CSS_SELECTOR, 'a.s-pagination-item.s-pagination-next')  #moving on to next page
+        next_button.click()
+        current_page += 1
+        time.sleep(6)  
+    except:
+        break  
+
+
+items.sort(key=lambda x: x["Rating"])
+
+try:
+    with open(csv_file_path, mode='w', newline='', encoding='utf-8') as file:
+        writer = csv.DictWriter(file, fieldnames=["Title", "Rating"])
+        writer.writeheader()
+        writer.writerows(items)
+    print(f"Data has been written to {csv_file_path}")
+except PermissionError:
+    print(f"Error: Permission denied when trying to write to the file {csv_file_path}.")
+
+
+driver.quit()
 
